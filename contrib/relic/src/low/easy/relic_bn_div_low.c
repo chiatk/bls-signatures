@@ -1,23 +1,24 @@
 /*
  * RELIC is an Efficient LIbrary for Cryptography
- * Copyright (C) 2007-2017 RELIC Authors
+ * Copyright (c) 2009 RELIC Authors
  *
  * This file is part of RELIC. RELIC is legal property of its developers,
  * whose names are not listed here. Please refer to the COPYRIGHT file
  * for contact information.
  *
- * RELIC is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * RELIC is free software; you can redistribute it and/or modify it under the
+ * terms of the version 2.1 (or later) of the GNU Lesser General Public License
+ * as published by the Free Software Foundation; or version 2.0 of the Apache
+ * License as published by the Apache Software Foundation. See the LICENSE files
+ * for more details.
  *
- * RELIC is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
+ * RELIC is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the LICENSE files for more details.
  *
- * You should have received a copy of the GNU Lesser General Public License
- * along with RELIC. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public or the
+ * Apache License along with RELIC. If not, see <https://www.gnu.org/licenses/>
+ * or <https://www.apache.org/licenses/>.
  */
 
 /**
@@ -42,11 +43,11 @@ void bn_divn_low(dig_t *c, dig_t *d, dig_t *a, int sa, dig_t *b, int sb) {
 	dig_t carry, t1[3], t2[3];
 
 	/* Normalize x and y so that the leading digit of y is bigger than
-	 * 2^(BN_DIGIT-1). */
-	norm = util_bits_dig(b[sb - 1]) % BN_DIGIT;
+	 * 2^(RLC_DIG-1). */
+	norm = util_bits_dig(b[sb - 1]) % RLC_DIG;
 
-	if (norm < (int)(BN_DIGIT - 1)) {
-		norm = (BN_DIGIT - 1) - norm;
+	if (norm < (int)(RLC_DIG - 1)) {
+		norm = (RLC_DIG - 1) - norm;
 		carry = bn_lshb_low(a, a, sa, norm);
 		if (carry) {
 			a[sa++] = carry;
@@ -64,31 +65,29 @@ void bn_divn_low(dig_t *c, dig_t *d, dig_t *a, int sa, dig_t *b, int sb) {
 
 	/* Shift y so that the most significant digit of y is aligned with the
 	 * most significant digit of x. */
-	bn_lshd_low(b, b, sb, (n - t));
+	dv_lshd(b, b, sb + (n - t), (n - t));
 
 	/* Find the most significant digit of the quotient. */
-	while (bn_cmpn_low(a, b, sa) != CMP_LT) {
+	while (dv_cmp(a, b, sa) != RLC_LT) {
 		c[n - t]++;
 		bn_subn_low(a, a, b, sa);
 	}
-	/* Shift y back. */
 
-	bn_rshd_low(b, b, sb + (n - t), (n - t));
+	/* Shift y back. */
+	dv_rshd(b, b, sb + (n - t), (n - t));
 
 	/* Find the remaining digits. */
 	for (i = n; i >= (t + 1); i--) {
+		dig_t tmp;
+
 		if (i > sa) {
 			continue;
 		}
 
 		if (a[i] == b[t]) {
-			c[i - t - 1] = ((((dbl_t)1) << BN_DIGIT) - 1);
+			c[i - t - 1] = RLC_MASK(RLC_DIG);
 		} else {
-			dbl_t tmp;
-			tmp = ((dbl_t)a[i]) << ((dbl_t)BN_DIGIT);
-			tmp |= (dbl_t)(a[i - 1]);
-			tmp /= (dbl_t)(b[t]);
-			c[i - t - 1] = (dig_t)tmp;
+			RLC_DIV_DIG(c[i - t - 1], tmp, a[i], a[i - 1], b[t]);
 		}
 
 		c[i - t - 1]++;
@@ -103,7 +102,7 @@ void bn_divn_low(dig_t *c, dig_t *d, dig_t *a, int sa, dig_t *b, int sb) {
 			t2[0] = (i - 2 < 0) ? 0 : a[i - 2];
 			t2[1] = (i - 1 < 0) ? 0 : a[i - 1];
 			t2[2] = a[i];
-		} while (bn_cmpn_low(t1, t2, 3) == CMP_GT);
+		} while (dv_cmp(t1, t2, 3) == RLC_GT);
 
 		carry = bn_mul1_low(d, b, c[i - t - 1], sb);
 		sd = sb;
@@ -129,21 +128,12 @@ void bn_divn_low(dig_t *c, dig_t *d, dig_t *a, int sa, dig_t *b, int sb) {
 }
 
 void bn_div1_low(dig_t *c, dig_t *d, const dig_t *a, int size, dig_t b) {
-	dbl_t w;
-	dig_t r;
-	int i;
+	dig_t q, r, w = 0;
 
-	w = 0;
-	for (i = size - 1; i >= 0; i--) {
-		w = (w << ((dbl_t)BN_DIGIT)) | ((dbl_t)a[i]);
-
-		if (w >= b) {
-			r = (dig_t)(w / b);
-			w -= ((dbl_t)r) * ((dbl_t)b);
-		} else {
-			r = 0;
-		}
-		c[i] = (dig_t)r;
+	for (int i = size - 1; i >= 0; i--) {
+		RLC_DIV_DIG(q, r, w, a[i], b);
+		c[i] = q;
+		w = r;
 	}
 	*d = (dig_t)w;
 }

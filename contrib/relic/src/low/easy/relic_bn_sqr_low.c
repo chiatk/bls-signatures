@@ -1,23 +1,24 @@
 /*
  * RELIC is an Efficient LIbrary for Cryptography
- * Copyright (C) 2007-2017 RELIC Authors
+ * Copyright (c) 2009 RELIC Authors
  *
  * This file is part of RELIC. RELIC is legal property of its developers,
  * whose names are not listed here. Please refer to the COPYRIGHT file
  * for contact information.
  *
- * RELIC is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * RELIC is free software; you can redistribute it and/or modify it under the
+ * terms of the version 2.1 (or later) of the GNU Lesser General Public License
+ * as published by the Free Software Foundation; or version 2.0 of the Apache
+ * License as published by the Apache Software Foundation. See the LICENSE files
+ * for more details.
  *
- * RELIC is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
+ * RELIC is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the LICENSE files for more details.
  *
- * You should have received a copy of the GNU Lesser General Public License
- * along with RELIC. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public or the
+ * Apache License along with RELIC. If not, see <https://www.gnu.org/licenses/>
+ * or <https://www.apache.org/licenses/>.
  */
 
 /**
@@ -31,85 +32,76 @@
 
 #include "relic_bn.h"
 #include "relic_bn_low.h"
-
-/*============================================================================*/
-/* Private definitions                                                        */
-/*============================================================================*/
-
-/**
- * Computes the step of a Comba squaring.
- *
- * @param[in,out] R2		- most significant word of the triple register.
- * @param[in,out] R1		- middle word of the triple register.
- * @param[in,out] R0		- lowest significant word of the triple register.
- * @param[in] A				- the first digit to multiply.
- * @param[in] B				- the second digit to multiply.
- */
-#define COMBA_STEP_BN_SQR_LOW(R2, R1, R0, A, B)								\
-	dbl_t r = (dbl_t)(A) * (dbl_t)(B);										\
-	dbl_t s = r + r;														\
-	dig_t _r = (R1);														\
-	(R0) += (dig_t)s;														\
-	(R1) += (R0) < (dig_t)s;												\
-	(R2) += (R1) < _r;														\
-	(R1) += (dig_t)(s >> (dbl_t)BN_DIGIT);									\
-	(R2) += (R1) < (dig_t)(s >> (dbl_t)BN_DIGIT);							\
-	(R2) += (s < r);														\
-
-/**
- * Computes the step of a Comba squaring when the loop length is odd.
- *
- * @param[in,out] R2		- most significant word of the triple register.
- * @param[in,out] R1		- middle word of the triple register.
- * @param[in,out] R0		- lowest significant word of the triple register.
- * @param[in] A				- the first digit to multiply.
- */
-#define COMBA_FINAL(R2, R1, R0, A)											\
-	dbl_t r = (dbl_t)(*tmpa) * (dbl_t)(*tmpa);								\
-	dig_t _r = (R1);														\
-	(R0) += (dig_t)(r);														\
-	(R1) += (R0) < (dig_t)r;												\
-	(R2) += (R1) < _r;														\
-	(R1) += (dig_t)(r >> (dbl_t)BN_DIGIT);									\
-	(R2) += (R1) < (dig_t)(r >> (dbl_t)BN_DIGIT);							\
+#include "relic_util.h"
 
 /*============================================================================*/
 /* Public definitions                                                         */
 /*============================================================================*/
 
-void bn_sqra_low(dig_t *c, const dig_t *a, int size) {
+dig_t bn_sqra_low(dig_t *c, const dig_t *a, int size) {
 	int i;
-	dig_t c0, c1;
-	dig_t digit;
-	dbl_t r, r0, r1;
+	dig_t t, c0, c1;
 
-	digit = *a;
+	t = a[0];
 
+#ifdef RLC_CONF_NODBL
+	dig_t r0, r1, _r0, _r1, s0, s1, t0, t1;
 	/* Accumulate this column with the square of a->dp[i]. */
-	r = (dbl_t)(*c) + (dbl_t)(digit) * (dbl_t)(digit);
-
-	*c = (dig_t)r;
+	RLC_MUL_DIG(_r1, _r0, t, t);
+	r0 = _r0 + c[0];
+	r1 = _r1 + (r0 < _r0);
+	c[0] = r0;
 
 	/* Update the carry. */
-	c0 = (dig_t)(r >> (dbl_t)BN_DIGIT);
+	c0 = r1;
 	c1 = 0;
 
-	c++;
-	a++;
-	for (i = 0; i < size - 1; i++, a++, c++) {
-		r = (dbl_t)(digit) * (dbl_t)(*a);
-		r0 = r + r;
-		r1 = r0 + (dbl_t)(*c) + (dbl_t)(c0);
-		*c = (dig_t)r1;
+	/* Version of the main loop not using double-precision types. */
+	for (i = 1; i < size; i++) {
+		RLC_MUL_DIG(_r1, _r0, t, a[i]);
+		r0 = _r0 + _r0;
+		r1 = _r1 + _r1 + (r0 < _r0);
+
+		s0 = r0 + c0;
+		s1 = r1 + (s0 < r0);
+
+		t0 = s0 + c[i];
+		t1 = s1 + (t0 < s0);
+		c[i] = t0;
 
 		/* Accumulate the old delayed carry. */
-		c0 = (dig_t)((r1 >> (dbl_t)BN_DIGIT) + c1);
+		c0 = t1 + c1;
+		/* Compute the new delayed carry. */
+		c1 = (t1 < s1) || (s1 < r1) || (r1 < _r1) || (c0 < c1);
+	}
+#else
+	dbl_t r, r0, r1;
+
+	/* Accumulate this column with the square of a->dp[i]. */
+	r = (dbl_t)(*c) + (dbl_t)(a[0]) * (dbl_t)(a[0]);
+	c[0] = (dig_t)r;
+
+	/* Update the carry. */
+	c0 = (dig_t)(r >> (dbl_t)RLC_DIG);
+	c1 = 0;
+
+	/* Version using double-precision types is hopefully faster. */
+	for (i = 1; i < size; i++) {
+		r = (dbl_t)(a[0]) * (dbl_t)(a[i]);
+		r0 = r + r;
+		r1 = r0 + (dbl_t)(c[i]) + (dbl_t)(c0);
+		c[i] = (dig_t)r1;
+
+		/* Accumulate the old delayed carry. */
+		c0 = (dig_t)((r1 >> (dbl_t)RLC_DIG) + c1);
 		/* Compute the new delayed carry. */
 		c1 = (r0 < r) || (r1 < r0) || (c0 < c1);
 	}
-	*c += c0;
-	c1 += (*c++ < c0);
-	*c += c1;
+#endif
+
+	c[size] += c0;
+	c1 += (c[size] < c0);
+	return c1;
 }
 
 void bn_sqrn_low(dig_t *c, const dig_t *a, int size) {
@@ -128,10 +120,10 @@ void bn_sqrn_low(dig_t *c, const dig_t *a, int size) {
 		/* Compute the number of additions in this column. */
 		j = (i + 1);
 		for (j = 0; j < (i + 1) / 2; j++, tmpa++, tmpb--) {
-			COMBA_STEP_BN_SQR_LOW(r2, r1, r0, *tmpa, *tmpb);
+			RLC_COMBA_STEP_SQR(r2, r1, r0, *tmpa, *tmpb);
 		}
 		if (!(i & 0x01)) {
-			COMBA_FINAL(r2, r1, r0, *tmpa);
+			RLC_COMBA_STEP_MUL(r2, r1, r0, *tmpa, *tmpa);
 		}
 		*c = r0;
 		r0 = r1;
@@ -144,10 +136,10 @@ void bn_sqrn_low(dig_t *c, const dig_t *a, int size) {
 
 		/* Compute the number of additions in this column. */
 		for (j = 0; j < (size - 1 - i) / 2; j++, tmpa++, tmpb--) {
-			COMBA_STEP_BN_SQR_LOW(r2, r1, r0, *tmpa, *tmpb);
+			RLC_COMBA_STEP_SQR(r2, r1, r0, *tmpa, *tmpb);
 		}
 		if (!((size - i) & 0x01)) {
-			COMBA_FINAL(r2, r1, r0, *tmpa);
+			RLC_COMBA_STEP_MUL(r2, r1, r0, *tmpa, *tmpa);
 		}
 		*c = r0;
 		r0 = r1;
