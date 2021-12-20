@@ -89,11 +89,9 @@ Implements BLS signatures with aggregation as in Boneh, Drijvers, Neven 2018, us
         #replace the import of gmp.h becouse Xcode failed with it import type
         find ./src/ -name '*.hpp' -print0 | xargs -0 sed -i '' 's/#include <gmp.h>/#include "gmp.h"/g'
         download_relic
-        download_gmp
+        #download_gmp
 
-       
         
-         
  
   CMD
 
